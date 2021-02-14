@@ -89,14 +89,7 @@ void Session::commandRouter(size_t t_bytesTransferred) {
         return;
     }
 
-    if (m_command == "zip-and-get") {
-        requestStream >> m_fileName;
-        requestStream >> m_fileSize;
-
-        return;
-    }
-
-    if (m_command == "unzip") {
+    if (m_command == "unzip" || m_command == "unzip-and-get") {
         requestStream >> m_fileName;
         requestStream >> m_fileSize;
 
@@ -116,14 +109,7 @@ void Session::commandRouter(size_t t_bytesTransferred) {
             m_outputFile.write(m_buf.data(), requestStream.gcount());
         } while (requestStream.gcount() > 0);
 
-        unZipCommandHandler();
-        return;
-    }
-
-    if (m_command == "unzip-and-get") {
-        requestStream >> m_fileName;
-        requestStream >> m_fileSize;
-
+        unZipCommandHandler(m_command);
         return;
     }
 
@@ -213,10 +199,10 @@ void Session::zipCommandHandler(const std::string& command) {
          });
 }
 
-void Session::unZipCommandHandler() {
+void Session::unZipCommandHandler(const std::string& command) {
     auto self = shared_from_this();
     m_socket.async_read_some(boost::asio::buffer(m_buf.data(), m_buf.size()),
-     [this, self](boost::system::error_code ec, size_t bytes) {
+     [this, self, command](boost::system::error_code ec, size_t bytes) {
          if (!ec) {
              std::cout << "recv " << bytes << " from response" << std::endl;
              if (bytes > 0) {
@@ -226,15 +212,20 @@ void Session::unZipCommandHandler() {
 
                  if (m_outputFile.tellp() >= static_cast<std::streamsize>(m_fileSize)) {
                      std::cout << "Received file: " << m_fileName << std::endl;
-                     decompress(m_fileName, getFileName(m_fileName, "unzip"));
+                     std::string deCompressedFileName = getFileName(m_fileName, "unzip");
+                     decompress(m_fileName, deCompressedFileName);
                      remove(m_fileName);
-                     std::string ok("OK " + m_fileName);
-                     writeToClient(ok);
+                     if (command == "unzip") {
+                         std::string ok("OK " + deCompressedFileName);
+                         writeToClient(ok);
+                     } else if (command  == "unzip-and-get"){
+                         getCommandHandler(deCompressedFileName);
+                     }
                      return;
                  }
              }
 
-             unZipCommandHandler();
+             unZipCommandHandler(command);
          } else {
              handleError(__FUNCTION__, ec);
          }

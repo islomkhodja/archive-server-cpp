@@ -30,10 +30,8 @@ private:
     void commandRouter(size_t t_bytesTransferred);
     std::string getFileName(std::string const &fileName, std::string const type);
     void createFile(std::string const &fileName);
-    void readData(std::istream &stream);
     void doReadFileContent(size_t t_bytesTransferred);
     void handleError(std::string const& t_functionName, boost::system::error_code const& t_ec);
-    void unZipCommandHandler();
     float compress(std::basic_string<char> fname, const std::basic_string<char> cname);
     void decompress(std::basic_string<char> fname, const std::basic_string<char> uname);
     void sendFile(boost::system::error_code ec);
@@ -66,6 +64,8 @@ private:
 
     void zipCommandHandler(const std::string &command);
     void getCommandHandler(const std::string &fileName);
+
+    void unZipCommandHandler(const std::string &command);
 };
 
 template<class Buffer>
