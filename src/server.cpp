@@ -57,22 +57,16 @@ void Session::commandRouter(size_t t_bytesTransferred) {
     std::cout << "line: " << line << std::endl;
     std::istream requestStream(&m_requestBuf_);
     requestStream >> m_command;
+
+
     if (m_command == "get") {
         requestStream >> m_fileName;
-        boost::filesystem::path filePath;
-        if (find_file(boost::filesystem::path("../new_files"), m_fileName, filePath)) {
-            openFile(m_fileName);
-            writeBuffer(m_request);
-        } else {
-            boost::asio::streambuf rmessage;
-            std::ostream response(&rmessage);
-            response << "\nERROR" << " " << "FILE_NOT_FOUND";
-            writeBuffer(rmessage, true);
-        }
+        getCommandHandler(m_fileName);
+        return;
     }
 
 
-    if (m_command == "zip") {
+    if (m_command == "zip" || m_command == "zip-and-get") {
         requestStream >> m_fileName;
         requestStream >> m_fileSize;
 
@@ -91,7 +85,7 @@ void Session::commandRouter(size_t t_bytesTransferred) {
             std::cout << __FUNCTION__ << " write " << requestStream.gcount() << " bytes." << std::endl;;
             m_outputFile.write(m_buf.data(), requestStream.gcount());
         } while (requestStream.gcount() > 0);
-        zipCommandHandler();
+        zipCommandHandler(m_command);
         return;
     }
 
@@ -133,6 +127,10 @@ void Session::commandRouter(size_t t_bytesTransferred) {
         return;
     }
 
+    boost::asio::streambuf rmessage;
+    std::ostream response(&rmessage);
+    response << "\nERROR" << " " << "UNKNOWN_COMMAND";
+    writeBuffer(rmessage, true);
 }
 
 void Session::sendFile(boost::system::error_code t_ec) {
@@ -176,15 +174,16 @@ void Session::openFile(std::string const& t_path)
 
     std::ostream requestStream(&m_request);
     boost::filesystem::path p(t_path);
+    m_fileName = p.filename().string();
     //requestStream << p.filename().string() << "\n" << fileSize << "\n\n";
-    requestStream << p.filename().string() << " " << fileSize << "\n\n";
+    requestStream << m_fileName << " " << fileSize << "\n\n";
     std::cout << "Request size: " << m_request.size() << std::endl;
 }
 
-void Session::zipCommandHandler() {
+void Session::zipCommandHandler(const std::string& command) {
     auto self = shared_from_this();
     m_socket.async_read_some(boost::asio::buffer(m_buf.data(), m_buf.size()),
-         [this, self](boost::system::error_code ec, size_t bytes) {
+         [this, self, command](boost::system::error_code ec, size_t bytes) {
              if (!ec) {
                  std::cout << "recv " << bytes << " from response" << std::endl;
                  if (bytes > 0) {
@@ -194,15 +193,20 @@ void Session::zipCommandHandler() {
 
                      if (m_outputFile.tellp() >= static_cast<std::streamsize>(m_fileSize)) {
                          std::cout << "Received file: " << m_fileName << std::endl;
-                         compress(m_fileName, getFileName(m_fileName, "zip"));
+                         std::string compressedFileName = getFileName(m_fileName, "zip");
+                         compress(m_fileName, compressedFileName);
                          remove(m_fileName);
-                         std::string ok("OK " + m_fileName);
-                         writeToClient(ok);
+                         if (command == "zip") {
+                             std::string ok("OK " + compressedFileName);
+                             writeToClient(ok);
+                         } else if (command  == "zip-and-get"){
+                             getCommandHandler(compressedFileName);
+                         }
                          return;
                      }
                  }
 
-                 zipCommandHandler();
+                 zipCommandHandler(command);
              } else {
                  handleError(__FUNCTION__, ec);
              }
@@ -370,8 +374,17 @@ void Session::decompress(std::basic_string<char> fname, const std::basic_string<
     ufile.close();
 }
 
-void Session::getCommandHandler() {
-
+void Session::getCommandHandler(const std::string& fileName) {
+    boost::filesystem::path filePath;
+    if (find_file(boost::filesystem::path("../new_files"), fileName, filePath)) {
+        openFile(fileName);
+        writeBuffer(m_request);
+    } else {
+        boost::asio::streambuf rmessage;
+        std::ostream response(&rmessage);
+        response << "\nERROR" << " " << "FILE_NOT_FOUND";
+        writeBuffer(rmessage, true);
+    }
 }
 
 Server::Server(IoService &t_ioService, short t_port, std::string const &t_workingDirectory)
